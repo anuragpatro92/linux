@@ -24,6 +24,12 @@
 #include "trace.h"
 #include "pmu.h"
 
+atomic_t vm_exit_count;
+EXPORT_SYMBOL(vm_exit_count);
+atomic_t vm_exit_counts[67];
+EXPORT_SYMBOL(vm_exit_counts);
+atomic64_t vm_exit_time;
+EXPORT_SYMBOL(vm_exit_time);
 static u32 xstate_required_size(u64 xstate_bv, bool compacted)
 {
 	int feature_bit = 0;
@@ -1046,7 +1052,47 @@ int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 
 	eax = kvm_rax_read(vcpu);
 	ecx = kvm_rcx_read(vcpu);
-	kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
+	if(eax == 0x4FFFFFFF){
+
+		eax = atomic_read(&vm_exit_count); 
+
+		//eax = vm_exit_count;
+
+		ebx = 0x00;
+
+		ecx = 0x00;
+
+		edx = 0x00;
+
+	}else if(eax == 0x4FFFFFFE){
+
+	eax = 0x00;
+	//eax = atomic64_read(&vm_exit_time);
+	u64 val = atomic64_read(&vm_exit_time) >> 32;
+	ebx = val & 0xffffffff;
+	ecx = atomic64_read(&vm_exit_time) & 0xffffffff;
+	edx =0x00;
+	}	
+
+
+	else if(eax == 0x4FFFFFFD){
+
+		eax = atomic_read(&vm_exit_counts[ecx]);
+
+		//eax = vm_exit_counts[ecx];
+
+		ebx = 0x00;
+
+		ecx = 0x00;
+
+	}else{
+
+		kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
+
+	}
+
+
+	//kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
 	kvm_rax_write(vcpu, eax);
 	kvm_rbx_write(vcpu, ebx);
 	kvm_rcx_write(vcpu, ecx);

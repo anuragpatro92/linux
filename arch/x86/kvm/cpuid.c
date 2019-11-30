@@ -24,12 +24,16 @@
 #include "trace.h"
 #include "pmu.h"
 
+
 atomic_t vm_exit_count;
 EXPORT_SYMBOL(vm_exit_count);
 atomic_t vm_exit_counts[67];
 EXPORT_SYMBOL(vm_exit_counts);
+atomic64_t vm_exit_time_record[67];
+EXPORT_SYMBOL(vm_exit_time_record);
 atomic64_t vm_exit_time;
 EXPORT_SYMBOL(vm_exit_time);
+
 static u32 xstate_required_size(u64 xstate_bv, bool compacted)
 {
 	int feature_bit = 0;
@@ -1046,53 +1050,91 @@ EXPORT_SYMBOL_GPL(kvm_cpuid);
 int kvm_emulate_cpuid(struct kvm_vcpu *vcpu)
 {
 	u32 eax, ebx, ecx, edx;
-
+	
+	
 	if (cpuid_fault_enabled(vcpu) && !kvm_require_cpl(vcpu, 0))
 		return 1;
 
 	eax = kvm_rax_read(vcpu);
 	ecx = kvm_rcx_read(vcpu);
+
 	if(eax == 0x4FFFFFFF){
-
 		eax = atomic_read(&vm_exit_count); 
-
 		//eax = vm_exit_count;
-
-		ebx = 0x00;
-
-		ecx = 0x00;
-
-		edx = 0x00;
-
+		ebx = 0;
+		ecx = 0;
+		edx = 0;
 	}else if(eax == 0x4FFFFFFE){
+		eax = 0x00;
+		u64 val = atomic64_read(&vm_exit_time) >> 32;
+		ebx = val & 0xffffffff;
+		ecx = atomic64_read(&vm_exit_time) & 0xffffffff;
+		edx =0x00;
+	
 
-	eax = 0x00;
-	//eax = atomic64_read(&vm_exit_time);
-	u64 val = atomic64_read(&vm_exit_time) >> 32;
-	ebx = val & 0xffffffff;
-	ecx = atomic64_read(&vm_exit_time) & 0xffffffff;
-	edx =0x00;
-	}	
+	}else if(eax == 0x4FFFFFFD){
+		if(ecx == 42 || ecx == 35 || ecx == 38 || ecx >= 65){
+		//not in sdm
+			eax = 0x0;
+			ebx = 0x0;
+			ecx = 0x0;
+			edx = 0xFFFFFFFF;
 
+		}else{	
+	
+			int temp = atomic_read(&vm_exit_counts[ecx]);
+			if(temp == -5){
+			// kvm didnot handle
+			eax = 0;
+			ebx = 0;
+			ecx = 0;
+			edx = 0;
+			} else{
+			// kvm handle
+			eax = temp;
+			ebx = 0;
+			ecx = 0;
+			edx = 0;
 
-	else if(eax == 0x4FFFFFFD){
+			}
+		}
+	}else if(eax == 0x4FFFFFFC){
+		if(ecx == 42 || ecx == 35 || ecx == 38 || ecx >= 65){
+		//not in sdm
+			eax = 0x0;
+			ebx = 0x0;
+			ecx = 0x0;
+			edx = 0xFFFFFFFF;
 
-		eax = atomic_read(&vm_exit_counts[ecx]);
+		}else{	
+			
+			u64 temp = atomic64_read(&vm_exit_time_record[ecx]);
+			
+			if(temp == -5){
+			// kvm didnot handle exit
+			eax = 0;
+			ebx = 0;
+			ecx = 0;
+			edx = 0;
+			} else{
+			// kvm handle time
+			eax = 0;
+			u64 val = temp >> 32;
+			ebx = val & 0xffffffff;
+			ecx = temp & 0xffffffff;
+			edx = 0;
 
-		//eax = vm_exit_counts[ecx];
+			}
+		}
+		
 
-		ebx = 0x00;
-
-		ecx = 0x00;
-
+		
 	}else{
-
 		kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
-
 	}
-
-
-	//kvm_cpuid(vcpu, &eax, &ebx, &ecx, &edx, true);
+	
+	
+	
 	kvm_rax_write(vcpu, eax);
 	kvm_rbx_write(vcpu, ebx);
 	kvm_rcx_write(vcpu, ecx);
